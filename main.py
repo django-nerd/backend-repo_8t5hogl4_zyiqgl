@@ -1,6 +1,9 @@
 import os
-from fastapi import FastAPI
+from typing import Optional
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from database import create_document
 
 app = FastAPI()
 
@@ -63,6 +66,59 @@ def test_database():
     response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
     
     return response
+
+# Request model for submissions
+class SubmissionIn(BaseModel):
+    instagram_handle: Optional[str] = Field(None, description="Instagram username/handle, e.g. @jane")
+    followers: int = Field(..., ge=0, description="Number of followers provided by the user")
+    contact: Optional[str] = Field(None, description="Optional contact (email/phone)")
+    note: Optional[str] = Field(None, description="Optional note")
+
+@app.post("/api/submit")
+def submit_followers(payload: SubmissionIn):
+    """Accept a followers count + optional handle/contact and store it. Also triggers a notification hook if configured."""
+    try:
+        # Persist to DB
+        from schemas import Submission as SubmissionSchema
+        sub = SubmissionSchema(
+            instagram_handle=payload.instagram_handle,
+            followers=payload.followers,
+            contact=payload.contact,
+            note=payload.note,
+        )
+        doc_id = create_document("submission", sub)
+
+        # Optional: send a webhook notification if NOTIFY_WEBHOOK_URL is set
+        webhook = os.getenv("NOTIFY_WEBHOOK_URL")
+        notify_status = "skipped"
+        if webhook:
+            try:
+                import requests
+                r = requests.post(webhook, json={
+                    "event": "new_submission",
+                    "id": doc_id,
+                    "followers": payload.followers,
+                    "instagram_handle": payload.instagram_handle,
+                    "contact": payload.contact,
+                    "note": payload.note,
+                }, timeout=5)
+                notify_status = f"sent:{r.status_code}"
+            except Exception as e:
+                notify_status = f"error:{str(e)[:50]}"
+
+        return {"ok": True, "id": doc_id, "notify": notify_status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Expose schemas for the database viewer
+@app.get("/schema")
+def get_schema():
+    from schemas import User, Product, Submission
+    return {
+        "user": User.model_json_schema(),
+        "product": Product.model_json_schema(),
+        "submission": Submission.model_json_schema(),
+    }
 
 
 if __name__ == "__main__":

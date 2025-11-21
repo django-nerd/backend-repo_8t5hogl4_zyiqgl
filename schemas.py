@@ -41,6 +41,16 @@ class Product(BaseModel):
 # Add your own schemas here:
 # --------------------------------------------------
 
+class Submission(BaseModel):
+    """
+    Stores submissions from the Instagram followers notification form.
+    Collection name: "submission"
+    """
+    instagram_handle: Optional[str] = Field(None, description="Instagram username/handle, e.g., @jane")
+    followers: int = Field(..., ge=0, description="Number of Instagram followers the person entered")
+    contact: Optional[str] = Field(None, description="Optional contact info from the person (email/phone)")
+    note: Optional[str] = Field(None, description="Optional note or message")
+
 # Note: The Flames database viewer will automatically:
 # 1. Read these schemas from GET /schema endpoint
 # 2. Use them for document validation when creating/editing
